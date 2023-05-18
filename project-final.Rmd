@@ -1,0 +1,280 @@
+---
+title: "project_ds"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+date: "2023-03-15"
+---
+
+# Project for DS
+##Data analysis and sales prediction
+
+## Load data and see the dataset
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(tidyverse)
+library(modelr)
+library(gridExtra)
+library(reshape2)
+library(dplyr)
+library(ggplot2)
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+# Load data
+data <- read_csv("Video_Games_Sales_as_at_22_Dec_2016.csv")
+head(data)
+data$User_Score <- na_if(data$User_Score, 'N/A')
+data$User_Score <- as.numeric(data$User_Score)
+data$Year_of_Release <- as.numeric(data$Year_of_Release)
+data$game_ages <- 2023-data$Year_of_Release
+data_clean <- data[complete.cases(data),]
+missing_precent <- colMeans(is.na(data_clean))*100
+missing_precent
+mean_Critic_Score <- mean(data$Critic_Score, na.rm = TRUE)
+mean_game_ages <- mean(data$game_ages, na.rm = TRUE)
+
+data$Critic_Score <- ifelse(is.na(data$Critic_Score), mean_Critic_Score, data$Critic_Score)
+#any_missing <- any(is.na(data$Adult_Mortality))
+#print(any_missing)
+data$game_ages <- ifelse(is.na(data$game_ages), mean_game_ages, data$game_ages)
+
+
+median_User_Count <- median(data$User_Count, na.rm = TRUE)
+median_JP_Sales <- median(data$JP_Sales, na.rm = TRUE)
+median_Critic_Count <- median(data$Critic_Count, na.rm = TRUE)
+median_User_Score <- median(data$User_Score, na.rm = TRUE)
+
+
+data$User_Count <- ifelse(is.na(data$User_Count), median_User_Count, data$User_Count)
+data$JP_Sales <- ifelse(is.na(data$JP_Sales), median_JP_Sales, data$JP_Sales)
+data$Critic_Count <- ifelse(is.na(data$Critic_Count), median_Critic_Count, data$Critic_Count)
+data$User_Score <- ifelse(is.na(data$User_Score), median_User_Score, data$User_Score)
+data <- data[complete.cases(data),]
+summary(data)
+head(data)
+
+freq_table <- table(data$Publisher)
+#ranked_table <- sort(freq_table, decreasing = TRUE)
+#print(ranked_table)
+
+#freq_table <- table(data$Publisher)
+low_freq_publishers <- names(freq_table[freq_table < 10])
+data$Publisher_grouped <- ifelse(data$Publisher %in% low_freq_publishers, "Other Publishers", data$Publisher)
+
+freq_table <- table(data$Publisher_grouped)
+ranked_table <- sort(freq_table, decreasing = TRUE)
+print(ranked_table)
+```
+# load the data from the second data source: Wikipedia 
+```{r message=FALSE, warning=FALSE, include=TRUE}
+data2 <- read_csv("List_of_best-selling_game_consoles_1 (1).csv")
+head(data2)
+head(data)
+```
+# join the two datasource togeter on the Platform feature
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(dplyr)
+merged_data <- left_join(data, data2, by = "Platform")
+head(merged_data)
+```
+# drop released year and ref feaures from datset
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(stringr)
+merged_data_clean <- subset(merged_data, select = -c(Released, Ref.))
+
+column_index <- which(colnames(merged_data_clean) == "Units sold")
+
+# Rename the 'Units sold' column to 'Units_sold'
+colnames(merged_data_clean)[column_index] <- "Units_sold"
+
+#merged_data_clean$Units_sold <- str_replace(merged_data_clean$Units_sold, " million", "")
+
+# Convert the Units_sold column to a numerical variable
+#merged_data_clean$Units_sold <- as.numeric(merged_data_clean$Units_sold)
+
+
+# Inspect the first few rows of the data frame with the modified Units_sold column
+merged_data_clean$Firm <- ifelse(is.na(merged_data_clean$Firm), "Other Firm", merged_data_clean$Firm)
+head(merged_data_clean)
+
+```
+
+# EDA
+# Boxplot to see which platform has the best sales
+```{r message=FALSE, warning=FALSE, include=TRUE}
+
+# Create a boxplot
+plot <- ggplot(merged_data_clean, aes(x = Firm, y = Global_Sales, fill =Firm)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Barplot of Global Sales by Platform",
+       x = "Firm",
+       y = "Global Sales") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+        plot.title = element_text(size = 20, hjust = 0.5))
+
+# Set the dimensions of the plot
+options(repr.plot.width = 10, repr.plot.height = 6)
+
+# Print the plot
+print(plot)
+
+```
+# Pie chart to see the platform share of the total sales(market)
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+
+total_sales_by_platform <- aggregate(Global_Sales ~ Firm, data = merged_data_clean, sum)
+
+# Create a pie chart of the total Global Sales by Platform
+pie_chart <- ggplot(total_sales_by_platform, aes(x = "", y = Global_Sales, fill = Firm)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar(theta = "y") +
+  labs(title = "Pie Chart of Global Sales by Platform",
+       fill = "Platform",
+       x = NULL,
+       y = NULL) +
+  theme_void()
+
+# Set the dimensions of the plot
+options(repr.plot.width = 8, repr.plot.height = 8)
+
+# Print the plot
+print(pie_chart)
+```
+
+# dummy coding
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(caret)
+dummy_formula <- ~ Platform + Genre + Rating + Publisher_grouped + Type + Firm
+
+# create a dummyVars object
+dummy_var_object <- dummyVars(dummy_formula, data = merged_data_clean)
+
+# generate dummy variables using the dummyVars object
+dummy_data <- predict(dummy_var_object, newdata = merged_data_clean)
+
+# convert the matrix to a data frame
+dummy_data <- as.data.frame(dummy_data)
+
+# combine the original data frame with the dummy data frame
+data_dummy <- cbind(merged_data_clean, dummy_data)
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(dplyr)
+data_dummy_clean <- subset(data_dummy, select = -c(Publisher, Developer, NA_Sales, EU_Sales, JP_Sales, Other_Sales, Platform, Genre, Rating, Name, Year_of_Release, Publisher_grouped, Type, Firm))
+
+```
+
+# log transfer of the gloabal sales
+```{r message=FALSE, warning=FALSE, include=TRUE}
+data_dummy_clean$log_Global_Sales <- log1p(data_dummy_clean$Global_Sales)
+
+```
+# create a new CSV file to store the cleaned dataset with two data source joined together
+```{r message=FALSE, warning=FALSE, include=TRUE}
+write.csv(data_dummy_clean, "my_dataframe.csv", row.names = FALSE)
+
+```
+# Model
+# XGboost
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(xgboost)
+# split the data into training (80%) and testing (20%) sets
+set.seed(123)
+train_idx <- createDataPartition(data_dummy_clean$log_Global_Sales, p = 0.8, list = FALSE)
+train_data <- data_dummy_clean[train_idx, ]
+test_data <- data_dummy_clean[-train_idx, ]
+
+# separate the target variable (Y) and the predictor variables (X)
+train_Y <- train_data$log_Global_Sales
+train_X <- train_data[, setdiff(names(train_data), c("Global_Sales", "log_Global_Sales"))]
+test_Y <- test_data$log_Global_Sales
+test_X <- test_data[, setdiff(names(test_data), c("Global_Sales", "log_Global_Sales"))]
+
+# convert the data to xgb.DMatrix format
+# specific data type for gradient boosting regression
+dtrain <- xgb.DMatrix(data = as.matrix(train_X), label = train_Y)
+dtest <- xgb.DMatrix(data = as.matrix(test_X), label = test_Y)
+
+# set parameters for the Gradient Boosting Regressor model
+# 
+params <- list(
+  objective = "reg:squarederror",
+  # use mae as the parameter defines the evaluation 
+  eval_metric = "rmse",
+  # learning rate
+  eta = 0.1,
+  # max depth of the tree is 6
+  max_depth = 6,
+  # 80% of training data will be used 
+  subsample = 0.8,
+  # fraction of the features
+  colsample_bytree = 0.8
+)
+
+# train the model
+set.seed(123)
+model <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = 50,
+  watchlist = list(train = dtrain, test = dtest),
+  early_stopping_rounds = 5,
+  verbose = 1
+)
+```
+
+# score printed MSE and R square
+```{r message=FALSE, warning=FALSE, include=TRUE}
+train_preds <- predict(model, dtrain)
+test_preds <- predict(model, dtest)
+
+# Calculate R-squared for training data
+train_r2 <- 1 - (sum((train_preds - train_Y)^2) / sum((train_Y - mean(train_Y))^2))
+
+# Calculate R-squared for test data
+test_r2 <- 1 - (sum((test_preds - test_Y)^2) / sum((test_Y - mean(test_Y))^2))
+train_mse <- mean((train_preds - train_Y)^2)
+
+# Calculate MSE for test data
+test_mse <- mean((test_preds - test_Y)^2)
+
+
+# Print R-squared values
+cat("R-squared value for the training dataset:", train_r2, "\n")
+cat("R-squared value for the test dataset:", test_r2, "\n")
+cat("Mean Squared Error for the training dataset:", train_mse, "\n")
+cat("Mean Squared Error for the test dataset:", test_mse, "\n")
+
+```
+
+
+# Scater plot for the model
+```{r message=FALSE, warning=FALSE, include=TRUE}
+preds <- predict(model, dtest)
+# extract the actual values from the dtest matrix
+actual_values <- getinfo(dtest, "label")
+# scatter plot comparing the actual values to the predicted values
+plot(actual_values, preds, main = "actual sales", xlab = "actual sales", ylab = "predict sales")
+abline(0, 1, col = "red") # Add a 45-degree line for reference
+```
+
+# plot the feature importance from the gradient boosting method
+```{r message=FALSE, warning=FALSE, include=TRUE}
+importance <- xgb.importance(colnames(train_X), model = model)
+
+# plot the feature importance
+xgb.plot.importance(importance)
+```
+
+
+
+
